@@ -1,0 +1,4 @@
+Pillow
+pyvirtualcam
+numpy
+pyinstaller
