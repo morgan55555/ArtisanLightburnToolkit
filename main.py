@@ -520,4 +520,8 @@ class Application(TkinterDnD.Tk):
 if __name__ == "__main__":
     app = Application()
     app.mainloop()
-    app.artisan.disconnect()
+
+    try:
+        app.artisan.disconnect()
+    except:
+        pass

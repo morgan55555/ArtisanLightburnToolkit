@@ -14,6 +14,7 @@ class SACPClient:
     def __init__(self, debug: bool = False):
         self.debug = debug
         self.conn: Optional[socket.socket] = None
+        self.estabilished = False
         self.sequence = 2
     
     def connect(self, ip: str, timeout: float = SACPConfig.DEFAULT_TIMEOUT) -> None:
@@ -49,6 +50,8 @@ class SACPClient:
             if response.command_set == 1 and response.command_id == 5:
                 break
         
+        self.estabilished = True
+
         if self.debug:
             print("-- Connected to printer")
     
@@ -289,7 +292,7 @@ class SACPClient:
         """Disconnect from printer"""
         if not self.conn:
             return
-        
+
         disconnect_packet = SACPPack(
             receiver_id=2,
             sender_id=0,
@@ -300,8 +303,11 @@ class SACPClient:
             data=b''
         )
         
-        self.conn.settimeout(timeout)
-        self.conn.send(disconnect_packet.encode())
+        if self.estabilished:
+            self.conn.settimeout(timeout)
+            self.conn.send(disconnect_packet.encode())
+            self.estabilished = False
+
         self.conn.close()
         self.conn = None
     
