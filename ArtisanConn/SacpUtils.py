@@ -20,6 +20,11 @@ class SACPUtils:
         buffer.write(struct.pack('<i', value))
 
     @staticmethod
+    def write_uint32(buffer: BytesIO, value: float) -> None:
+        """Write unsigned 32-bit integer"""
+        buffer.write(struct.pack('<I', value))
+
+    @staticmethod
     def write_float(buffer: BytesIO, value: float) -> None:
         """Write 32-bit float"""
         float_to_int_val = int(value * 1000)

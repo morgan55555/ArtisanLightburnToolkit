@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
+from tkinterdnd2 import DND_FILES, TkinterDnD
 import threading
 import time
 import json
@@ -14,7 +15,7 @@ class ApplicationError(Exception):
     """Base exception for this app"""
     pass
 
-class Application(tk.Tk):
+class Application(TkinterDnD.Tk):
     def __init__(self):
         super().__init__()
         
@@ -136,6 +137,11 @@ class Application(tk.Tk):
                                          state=tk.DISABLED, command=self.set_work_z_origin)
         self.set_z_origin_btn.pack(fill=tk.X, pady=(5, 0))
         
+        # File upload button
+        self.upload_btn = ttk.Button(control_frame, text="📤 Upload File", 
+                                   state=tk.DISABLED, command=self.upload_file_dialog)
+        self.upload_btn.pack(fill=tk.X, pady=(5, 0))
+
         # Log output group
         log_frame = ttk.LabelFrame(left_frame, text="Log", padding=10)
         log_frame.pack(fill=tk.BOTH, expand=True)
@@ -154,6 +160,10 @@ class Application(tk.Tk):
         
         # Loading overlay
         self.setup_loading_overlay()
+
+        # Setup drag'n'drop support
+        self.drop_target_register(DND_FILES)
+        self.dnd_bind('<<Drop>>', self.on_drop)
         
     def setup_loading_overlay(self):
         self.loading_frame = tk.Frame(self, bg='white', highlightbackground="gray", highlightthickness=2)
@@ -301,6 +311,7 @@ class Application(tk.Tk):
         self.update_img_btn.config(state=tk.NORMAL)
         self.thickness_btn.config(state=tk.NORMAL)
         self.set_z_origin_btn.config(state=tk.NORMAL)
+        self.upload_btn.config(state=tk.NORMAL)
         
         self.save_config()
         self.hide_loading()
@@ -325,6 +336,7 @@ class Application(tk.Tk):
         self.update_img_btn.config(state=tk.DISABLED)
         self.thickness_btn.config(state=tk.DISABLED)
         self.set_z_origin_btn.config(state=tk.DISABLED)
+        self.upload_btn.config(state=tk.DISABLED)
         
         self.log("Disconnected")
     
@@ -456,6 +468,50 @@ class Application(tk.Tk):
         self.hide_loading()
         self.log("Work Z origin set successfully")
     
+    def upload_file_dialog(self):
+        """Open file dialog and upload selected file"""
+        from tkinter import filedialog
+        filepath = filedialog.askopenfilename(
+            title="Select file to upload",
+            filetypes=[("G-code", "*.nc")]
+        )
+        if filepath:
+            self._upload_file(filepath)
+
+    def on_drop(self, event):
+            """Handle drag-and-drop file upload (tkinterdnd2)"""
+            # event.data may contain curly braces and multiple files separated by space
+            data = event.data.strip()
+            # Simple handling: support single file (most common use case)
+            # Remove surrounding {} if present
+            if data.startswith('{') and data.endswith('}'):
+                filepath = data[1:-1]
+            else:
+                filepath = data
+            
+            if os.path.isfile(filepath):
+                self._upload_file(filepath)
+            else:
+                self.log(f"Invalid drop: {filepath}")
+
+    def _upload_file(self, filepath: str):
+        """Internal upload function with loading indicator"""
+        def upload_thread():
+            self.show_loading()
+            try:
+                self.log(f"Uploading file: {os.path.basename(filepath)}")
+                self.artisan.upload_file(filepath)
+                self.after(0, self.on_upload_success)
+            except Exception as e:
+                error_msg = str(e)
+                self.after(0, lambda: self.on_operation_error("File Upload", error_msg))
+        
+        threading.Thread(target=upload_thread, daemon=True).start()
+
+    def on_upload_success(self):
+        self.hide_loading()
+        self.log("File uploaded successfully")
+
     def on_operation_error(self, operation, error_msg):
         self.hide_loading()
         messagebox.showerror(f"{operation} Error", f"{operation} failed: {error_msg}")

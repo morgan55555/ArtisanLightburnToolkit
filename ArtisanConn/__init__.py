@@ -1,4 +1,5 @@
 from io import BytesIO
+from pathlib import Path
 
 from .SacpConfig import SACPConfig
 from .SacpClient import SACPClient
@@ -180,6 +181,21 @@ class ArtisanConn:
         self.execute_gcode(command)
         self.set_work_origin('z', 0)
         self.execute_gcode("G54")
+
+    def upload_file(self, filepath: str) -> None:
+        """Upload file to a printer"""
+
+        path_obj = Path(filepath)
+        filename = path_obj.name
+        fileext = path_obj.suffix
+
+        if fileext != '.nc':
+            raise ArtisanError(f"Invalid file extension {fileext}, must be .nc file!")
+
+        with open(filepath, "rb") as file:
+            file_bytes = file.read()
+
+        self.client.send_file(filename, file_bytes)
     
     def disconnect(self) -> None:
         """Disconnect from printer"""

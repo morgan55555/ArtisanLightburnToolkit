@@ -187,7 +187,104 @@ class SACPClient:
                 response.command_id == command_id) or
                 response.command_id == 0):
                 return response
-    
+
+    def send_file(self, filename: str, file_data: bytes, timeout: float = SACPConfig.DEFAULT_TIMEOUT) -> None:
+        """
+        Send file to SACP device (upload G-code or similar)
+        """
+        if not self.conn:
+            raise SACPError("Not connected")
+
+        if self.debug:
+            print(f"-- Starting file upload: {filename}, size: {len(file_data)}")
+
+        SACP_data_len = SACPConfig.DATA_CHUNK_SIZE
+
+        package_count = (len(file_data) // SACP_data_len) + (1 if len(file_data) % SACP_data_len else 0)
+        import hashlib
+        md5hash = hashlib.md5(file_data).digest()
+        md5_hex = md5hash.hex()
+
+        # Prepare and send start upload packet (B0 00)
+        data = BytesIO()
+        SACPUtils.write_sacp_string(data, filename)
+        SACPUtils.write_uint32(data, len(file_data))
+        SACPUtils.write_uint16(data, package_count)
+        SACPUtils.write_sacp_string(data, md5_hex)
+
+        start_packet = SACPPack(
+            receiver_id=2,
+            sender_id=0,
+            attribute=0,
+            sequence=1,
+            command_set=0xB0,
+            command_id=0x00,
+            data=data.getvalue()
+        )
+        self.conn.send(start_packet.encode())
+
+        chunk_index = 0
+        while True:
+            response = self._read(timeout)
+
+            if response.command_set == 0xB0 and response.command_id == 0x00:
+                # Ignore unknown B0/00 reply
+                continue
+
+            elif response.command_set == 0xB0 and response.command_id == 0x01:
+                # Device requests a chunk
+                if len(response.data) < 4:
+                    raise FileTransferError("Invalid chunk request packet")
+
+                # Parse request: md5 string + chunk_index (uint16)
+                req_md5, remaining = SACPUtils.read_sacp_string(response.data)
+                req_chunk, _ = SACPUtils.read_uint16(remaining)
+
+                if req_chunk >= package_count:
+                    raise FileTransferError(f"Requested invalid chunk {req_chunk}")
+
+                # Prepare chunk data
+                start = req_chunk * SACP_data_len
+                end = start + SACP_data_len if req_chunk < package_count - 1 else len(file_data)
+                chunk_data = file_data[start:end]
+
+                if self.debug:
+                    perc = (req_chunk + 1) / package_count * 100
+                    print(f"-- Sending chunk {req_chunk + 1}/{package_count} ({perc:.1f}%) size: {len(chunk_data)}")
+
+                # Build response (B0 01)
+                resp_data = BytesIO()
+                resp_data.write(b'\x00')  # success
+                SACPUtils.write_sacp_string(resp_data, md5_hex)
+                SACPUtils.write_uint16(resp_data, req_chunk)
+                SACPUtils.write_uint16(resp_data, len(chunk_data))  # or write_sacp_bytes if helper exists
+                resp_data.write(chunk_data)
+
+                resp_packet = SACPPack(
+                    receiver_id=2,
+                    sender_id=0,
+                    attribute=1,  # important: response attribute
+                    sequence=response.sequence,
+                    command_set=0xB0,
+                    command_id=0x01,
+                    data=resp_data.getvalue()
+                )
+                self.conn.send(resp_packet.encode())
+
+            elif response.command_set == 0xB0 and response.command_id == 0x02:
+                # Upload finished confirmation
+                if len(response.data) == 1 and response.data[0] == 0x00:
+                    if self.debug:
+                        print(f"-- File upload finished: {filename}")
+                    return
+                else:
+                    raise FileTransferError("Upload finished with error")
+            else:
+                # Unexpected packet — continue waiting
+                continue
+
+        raise FileTransferError("File upload did not complete")
+
     def disconnect(self, timeout: float = SACPConfig.DEFAULT_TIMEOUT) -> None:
         """Disconnect from printer"""
         if not self.conn:
