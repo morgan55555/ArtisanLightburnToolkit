@@ -1,2 +1,2 @@
 @echo off
-pyinstaller main.py --onefile --noconsole --hidden-import=xml.parsers.expat
+pyinstaller main.py --onefile --noconsole --clean --hidden-import=xml.parsers.expat
